@@ -110,15 +110,26 @@ NeonApp::processInput()
 {
 	setColor(colorDiffIntro);
 
+	bool inputHasAnsi = false;
+
 	bool inBlock = false;
 	while(readLine()) {
-		if((blockRem_ || blockAdd_) && *line_ != '-' && *line_ != '+') {
+		const char *ch = line_;
+		if(*ch == '\33') {
+			// skip existing ansi colors
+			inputHasAnsi = true;
+			while(*ch++ != 'm');
+		}
+
+		if((blockRem_ || blockAdd_) && *ch != '-' && *ch != '+') {
 			outputDiff();
 			setColor(colorLineContext);
-		} else if(*line_ == '@') {
+		} else if(*ch == '@') {
+			stripAnsi();
 			inBlock = true;
 			setColor(colorBlockInfo);
 		} else if(inBlock) {
+			stripAnsi();
 			if(*line_ == '-') {
 				if(!blockRem_)
 					blockRem_ = line_;
@@ -134,17 +145,28 @@ NeonApp::processInput()
 			}
 		}
 
+		bool preserveAnsi = false;
+
 		if(!inBlock) {
-			if(*line_ == '+' || *line_ == '-')
+			if((*ch == '+' || *ch == '-') && *ch == ch[1] && *ch == ch[2]) {
+				stripAnsi();
 				setColor(colorFileIntro);
-			else
-				setColor(colorDiffIntro);
+			} else {
+				if(inputHasAnsi)
+					preserveAnsi = true; // we want to keep exisitng colors from input here
+				else
+					setColor(colorDiffIntro);
+			}
 		}
 
-		while(lineLen_--)
-			printChar(*line_++);
-
-		setColor(colorLineContext);
+		if(preserveAnsi) {
+			while(lineLen_--)
+				fputc(*line_++, output_);
+		} else {
+			while(lineLen_--)
+				printChar(*line_++);
+			setColor(colorLineContext);
+		}
 
 		bufLen_ = 0;
 	}
@@ -183,6 +205,20 @@ NeonApp::readLine()
 	}
 
 	return !feof(input_);
+}
+
+void
+NeonApp::stripAnsi()
+{
+	char *left = line_;
+	char *right = line_;
+
+	for(int i = 0; i < lineLen_; i++) {
+		while(*right == '\33') {
+			while(lineLen_-- && bufLen_-- && *right++ != 'm');
+		}
+		*left++ = *right++;
+	}
 }
 
 void

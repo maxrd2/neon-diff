@@ -17,6 +17,7 @@ protected:
 	void processInput();
 
 	bool readLine();
+	void stripAnsi();
 
 	void outputBlock(const char *block, const char *blockEnd);
 	Block * longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
@@ -40,7 +41,7 @@ private:
 	int bufLen_;
 	int bufSize_;
 
-	const char *line_;
+	char *line_;
 	int lineLen_;
 
 	const char *blockRem_;
