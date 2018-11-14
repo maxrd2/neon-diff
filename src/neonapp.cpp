@@ -171,6 +171,11 @@ NeonApp::processInput()
 		bufLen_ = 0;
 	}
 
+	if(blockRem_ || blockAdd_) {
+		outputDiff();
+		setColor(colorLineContext);
+	}
+
 	setColor(colorReset);
 }
 
