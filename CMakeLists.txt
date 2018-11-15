@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 project(neon-diff)
 
 add_executable(${PROJECT_NAME}
+	"src/colors.cpp"
+	"src/diffparser.cpp"
 	"src/neonapp.cpp"
 	"src/main.cpp")
 

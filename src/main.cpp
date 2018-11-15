@@ -22,6 +22,9 @@
 #include <unistd.h>
 
 #include "neonapp.h"
+#include "diffparser.h"
+
+NeonApp *app = nullptr;
 
 int
 main(int argc, char *argv[])
@@ -96,9 +99,9 @@ main(int argc, char *argv[])
 		}
 	}
 
-	NeonApp::instance_ = new NeonApp(in, out);
+	app = new NeonApp(in, out);
 
-	NeonApp::instance_->processInput();
+	app->parser_->processInput();
 
 	if(in != stdin)
 		fclose(in);
