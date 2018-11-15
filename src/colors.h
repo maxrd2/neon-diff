@@ -12,9 +12,9 @@ extern const char *colorWhite;
 extern const char *colorReset;
 
 // colors used for diff parts
-extern const char *colorDiffIntro;
-extern const char *colorFileIntro;
-extern const char *colorBlockInfo;
+extern const char *colorFileInfo;
+extern const char *colorBlockRange;
+extern const char *colorBlockHeading;
 extern const char *colorLineDel;
 extern const char *colorLineAdd;
 extern const char *colorLineContext;

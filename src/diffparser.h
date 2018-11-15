@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <list>
 
+#define LINE_HANDLER_SIZE 6
+
 class Block;
 typedef std::list<Block *> BlockList;
 
@@ -16,11 +18,29 @@ public:
 	void processInput();
 
 	bool readLine();
-	void stripAnsi();
 
+protected:
+	void resizeBuffer();
+	void resetBuffer();
+
+	static bool handlerForLine(const char *line, const char *id, int n);
+
+	static void handleFileInfoLine(DiffParser *parser);
+	static void handleRangeInfoLine(DiffParser *parser);
+
+	static void handleContextLine(DiffParser *parser);
+	static void handleRemLine(DiffParser *parser);
+	static void handleAddLine(DiffParser *parser);
+
+	static void handleGenericLine(DiffParser *parser);
+
+	void processBlock();
+
+	void stripLineAnsi();
 	Block * longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
 	BlockList compareBlocks(const char *a, const char *aEnd, const char *b, const char *bEnd);
-	void outputDiff();
+
+	void printLineNoAnsi(int length = -1);
 
 private:
 	FILE *input_;
@@ -32,8 +52,17 @@ private:
 	char *line_;
 	int lineLen_;
 
+	bool inBlock_;
 	const char *blockRem_;
 	const char *blockAdd_;
+
+	typedef void (*LineHandlerCallback)(DiffParser *parser);
+
+	static struct LineHandler {
+		const char *identifier;
+		LineHandlerCallback callback;
+		bool blockLine;
+	} lineHandler_[LINE_HANDLER_SIZE];
 };
 
 #endif // DIFFPARSE_H

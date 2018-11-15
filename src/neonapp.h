@@ -11,14 +11,14 @@ public:
 	NeonApp(FILE *inputStream, FILE *outputStream);
 	virtual ~NeonApp();
 
-	void outputBlock(const char *block, const char *blockEnd);
-
 	void setColor(const char *color);
 	void setHighlight(const char *highlight);
 
 	void printNewLine();
+	void printAnsiCodes();
 	void printChar(const char ch);
 	void printCharNoAnsi(const char ch);
+	void printBlock(const char *block, const char *blockEnd);
 
 private:
 	friend int main(int argc, char *argv[]);

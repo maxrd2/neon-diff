@@ -8,6 +8,11 @@
 #include <cassert>
 
 
+#define BUFFER_SIZE_INIT 8192
+// when buffer becomes too small its size is doubled, unless bigger than this
+#define BUFFER_MAX_SIZE_INC 8192 * 1024
+
+
 class Block {
 public:
 	Block()
@@ -25,13 +30,23 @@ public:
 	int len;
 };
 
+DiffParser::LineHandler DiffParser::lineHandler_[LINE_HANDLER_SIZE] = {
+	// diff header lines
+	{"---", DiffParser::handleFileInfoLine, false},
+	{"+++", DiffParser::handleFileInfoLine, false},
+	{"@@", DiffParser::handleRangeInfoLine, false},
+	// block/range diff lines
+	{" ", DiffParser::handleContextLine, false},
+	{"-", DiffParser::handleRemLine, true},
+	{"+", DiffParser::handleAddLine, true}
+};
 
 
 DiffParser::DiffParser(FILE *inputStream)
 	: input_(inputStream),
 	  buf_(nullptr),
 	  bufLen_(0),
-	  bufSize_(8192),
+	  bufSize_(BUFFER_SIZE_INIT),
 	  line_(nullptr),
 	  lineLen_(0),
 	  blockRem_(nullptr),
@@ -52,78 +67,76 @@ DiffParser::~DiffParser()
 	blockAdd_ = nullptr;
 }
 
+/*static*/ bool
+DiffParser::handlerForLine(const char *line, const char *id, int n)
+{
+	while(n && *line && *id) {
+		if(*line == '\33') { // skip ansi chars
+			while(n-- && *line++ != 'm');
+			continue;
+		}
+		n--;
+		if(*line++ != *id++)
+			return false;
+	}
+
+	return *id == 0;
+}
+
 void
 DiffParser::processInput()
 {
-	app->setColor(colorDiffIntro);
+	inBlock_ = false;
 
-	bool inputHasAnsi = false;
-
-	bool inBlock = false;
 	while(readLine()) {
-		const char *ch = line_;
-		if(*ch == '\33') {
-			// skip existing ansi colors
-			inputHasAnsi = true;
-			while(*ch++ != 'm');
-		}
+		// find a line handler
+		int i = 0;
+		while(i < LINE_HANDLER_SIZE && !handlerForLine(line_, lineHandler_[i].identifier, lineLen_))
+			i++;
 
-		if((blockRem_ || blockAdd_) && *ch != '-' && *ch != '+') {
-			outputDiff();
-			app->setColor(colorLineContext);
-		} else if(*ch == '@') {
-			stripAnsi();
-			inBlock = true;
-			app->setColor(colorBlockInfo);
-		} else if(inBlock) {
-			stripAnsi();
-			if(*line_ == '-') {
-				if(!blockRem_)
-					blockRem_ = line_;
-				continue;
-			} else if(*line_ == '+') {
-				if(!blockAdd_)
-					blockAdd_ = line_;
-				continue;
-			} else if(*line_ == ' ') {
-				app->setColor(colorLineContext);
-			} else {
-				inBlock = false;
-			}
-		}
-
-		bool preserveAnsi = false;
-
-		if(!inBlock) {
-			if((*ch == '+' || *ch == '-') && *ch == ch[1] && *ch == ch[2]) {
-				stripAnsi();
-				app->setColor(colorFileIntro);
-			} else {
-				if(inputHasAnsi)
-					preserveAnsi = true; // we want to keep exisitng colors from input here
-				else
-					app->setColor(colorDiffIntro);
-			}
-		}
-
-		if(preserveAnsi) {
-			while(lineLen_--)
-				app->printCharNoAnsi(*line_++);
+		if(i == LINE_HANDLER_SIZE) {
+			// no handler found, use generic one
+			handleGenericLine(this);
 		} else {
-			while(lineLen_--)
-				app->printChar(*line_++);
-			app->setColor(colorLineContext);
+			if(inBlock_ && !lineHandler_[i].blockLine)
+				processBlock();
+
+			inBlock_ = lineHandler_[i].blockLine;
+
+			lineHandler_[i].callback(this);
+
+			if(!inBlock_)
+				resetBuffer();
 		}
-
-		bufLen_ = 0;
 	}
 
-	if(blockRem_ || blockAdd_) {
-		outputDiff();
-		app->setColor(colorLineContext);
-	}
+	if(inBlock_)
+		processBlock();
+}
 
-	app->setColor(colorReset);
+void
+DiffParser::resetBuffer()
+{
+	bufLen_ = 0;
+	line_ = nullptr;
+	lineLen_ = 0;
+	blockRem_ = nullptr;
+	blockAdd_ = nullptr;
+}
+
+void
+DiffParser::resizeBuffer()
+{
+	char *buf = buf_;
+	bufSize_ += bufSize_ > BUFFER_MAX_SIZE_INC ? BUFFER_MAX_SIZE_INC : bufSize_;
+	buf_ = static_cast<char *>(realloc(buf_, bufSize_));
+
+	// change pointers to new buf address
+	line_ = buf_ + (line_ - buf);
+	if(blockRem_)
+		blockRem_ = buf_ + (blockRem_ - buf);
+	if(blockAdd_)
+		blockAdd_ = buf_ + (blockAdd_ - buf);
 }
 
 bool
@@ -133,17 +146,8 @@ DiffParser::readLine()
 	lineLen_ = 0;
 
 	while(!feof(input_)) {
-		if(bufLen_ == bufSize_) {
-			char *bufOld = buf_;
-			bufSize_ *= 2;
-			buf_ = static_cast<char *>(realloc(buf_, bufSize_));
-			// change pointers to new buf address
-			line_ = buf_ + (line_ - bufOld);
-			if(blockRem_)
-				blockRem_ = buf_ + (blockRem_ - bufOld);
-			if(blockAdd_)
-				blockAdd_ = buf_ + (blockAdd_ - bufOld);
-		}
+		if(bufLen_ >= bufSize_)
+			resizeBuffer();
 
 		int ch = fgetc(input_);
 		buf_[bufLen_] = ch;
@@ -159,15 +163,20 @@ DiffParser::readLine()
 }
 
 void
-DiffParser::stripAnsi()
+DiffParser::stripLineAnsi()
 {
 	char *left = line_;
 	char *right = line_;
 
-	for(int i = 0; i < lineLen_; i++) {
-		while(*right == '\33') {
-			while(lineLen_-- && bufLen_-- && *right++ != 'm');
+	for(int i = 0; i < lineLen_;) {
+		if(*right == '\33') { // skip ansi chars
+			do {
+				lineLen_--;
+				bufLen_--;
+			} while(i < lineLen_ && *right++ != 'm');
+			continue;
 		}
+		i++;
 		*left++ = *right++;
 	}
 }
@@ -253,17 +262,19 @@ DiffParser::compareBlocks(const char *remStart, const char *remEnd, const char *
 }
 
 void
-DiffParser::outputDiff()
+DiffParser::processBlock()
 {
+	inBlock_ = false;
+
 	if(!blockAdd_) {
 		app->setColor(colorLineDel);
-		app->outputBlock(blockRem_, line_);
+		app->printBlock(blockRem_, line_);
 		blockRem_ = nullptr;
 		return;
 	}
 	if(!blockRem_) {
 		app->setColor(colorLineAdd);
-		app->outputBlock(blockAdd_, line_);
+		app->printBlock(blockAdd_, line_);
 		blockAdd_ = nullptr;
 		return;
 	}
@@ -274,26 +285,143 @@ DiffParser::outputDiff()
 	const char *start = blockRem_;
 	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		app->outputBlock(start, (*i)->aBuf);
+		app->printBlock(start, (*i)->aBuf);
 		app->setHighlight(highlightOff);
-		app->outputBlock((*i)->aBuf, (*i)->aEnd);
+		app->printBlock((*i)->aBuf, (*i)->aEnd);
 		start = (*i)->aEnd;
 	}
 	app->setHighlight(highlightOn);
-	app->outputBlock(start, blockAdd_);
+	app->printBlock(start, blockAdd_);
 
 	app->setColor(colorLineAdd);
 	start = blockAdd_;
 	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		app->outputBlock(start, (*i)->bBuf);
+		app->printBlock(start, (*i)->bBuf);
 		app->setHighlight(highlightOff);
-		app->outputBlock((*i)->bBuf, (*i)->bEnd);
+		app->printBlock((*i)->bBuf, (*i)->bEnd);
 		start = (*i)->bEnd;
 	}
 	app->setHighlight(highlightOn);
-	app->outputBlock(start, line_);
+	app->printBlock(start, line_);
 
 	app->setHighlight(highlightOff);
 	blockAdd_ = blockRem_ = nullptr;
+}
+
+/*!
+ * \brief Print \p (part of) current line and update internal line pointer and length. Ansi sequences will not be printed.
+ * \param length how many bytes to print (-1 for whole line)
+ */
+void
+DiffParser::printLineNoAnsi(int length/* = -1 */)
+{
+	if(length == -1 || length > lineLen_)
+		length = lineLen_;
+
+	if(!length)
+		return;
+
+	lineLen_ -= length;
+
+	const char *lineEnd = line_ + length;
+
+	while(line_ < lineEnd) {
+		if(*line_ == '\33') { // skip ansi chars
+			while(line_ < lineEnd && *line_++ != 'm');
+			continue;
+		}
+		app->printChar(*line_++);
+	}
+}
+
+/*static*/ void
+DiffParser::handleFileInfoLine(DiffParser *parser)
+{
+	// print '---' and '+++' lines
+
+	app->setHighlight(highlightOff);
+	app->setColor(colorFileInfo);
+
+	parser->printLineNoAnsi();
+
+	app->setColor(colorReset);
+	app->setHighlight(highlightReset);
+}
+
+/*static*/ void
+DiffParser::handleRangeInfoLine(DiffParser *parser)
+{
+	// print '@@' lines
+
+	app->setHighlight(highlightOff);
+
+	app->setColor(colorBlockRange);
+	int at = 0;
+	int rangeLen = 0;
+	while(at < 4 && rangeLen < parser->lineLen_) {
+		if(parser->line_[rangeLen++] == '@')
+			at++;
+	}
+	parser->printLineNoAnsi(rangeLen);
+
+	app->setColor(colorBlockHeading);
+	parser->printLineNoAnsi();
+
+	app->setColor(colorReset);
+	app->setHighlight(highlightReset);
+}
+
+/*static*/ void
+DiffParser::handleContextLine(DiffParser *parser)
+{
+	// print ' ' lines inside diff block
+
+	app->setHighlight(highlightOff);
+	app->setColor(colorLineContext);
+
+	parser->printLineNoAnsi();
+
+	app->setColor(colorReset);
+	app->setHighlight(highlightReset);
+}
+
+/*static*/ void
+DiffParser::handleRemLine(DiffParser *parser)
+{
+	// handle '-' lines inside diff block
+
+	if(parser->blockAdd_) // when '-' block comes after '+' block, we have to process
+		parser->processBlock();
+
+	if(!parser->blockRem_)
+		parser->blockRem_ = parser->line_;
+
+	parser->stripLineAnsi();
+
+	// we are just preparing block buffers, they will be printed in processBlock()
+}
+
+/*static*/ void
+DiffParser::handleAddLine(DiffParser *parser)
+{
+	// handle '+' lines inside diff block
+
+	if(!parser->blockAdd_)
+		parser->blockAdd_ = parser->line_;
+
+	parser->stripLineAnsi();
+
+	// we are just preparing block buffers, they will be printed in processBlock()
+}
+
+/*static*/ void
+DiffParser::handleGenericLine(DiffParser *parser)
+{
+	app->setColor(colorReset);
+	app->setHighlight(highlightReset);
+	app->printAnsiCodes();
+
+	while(parser->lineLen_--)
+		app->printCharNoAnsi(*parser->line_++);
 }

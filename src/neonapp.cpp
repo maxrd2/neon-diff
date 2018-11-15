@@ -57,13 +57,6 @@ NeonApp::setHighlight(const char *highlight)
 }
 
 void
-NeonApp::outputBlock(const char *block, const char *blockEnd)
-{
-	while(block < blockEnd)
-		printChar(*block++);
-}
-
-void
 NeonApp::printNewLine()
 {
 	fputc('\n', output_);
@@ -78,30 +71,33 @@ NeonApp::printNewLine()
 }
 
 void
+NeonApp::printAnsiCodes()
+{
+	if(printedColor_ != selectedColor_) {
+		printedColor_ = selectedColor_;
+		fputs(selectedColor_, output_);
+	}
+	if(outLineStart_) {
+		// we don't want to highlight first character
+		if(printedHighlight_ != highlightOff) {
+			printedHighlight_ = highlightOff;
+			fputs(highlightOff, output_);
+		}
+	} else if(printedHighlight_ != selectedHighlight_) {
+		printedHighlight_ = selectedHighlight_;
+		fputs(selectedHighlight_, output_);
+	}
+}
+
+void
 NeonApp::printChar(const char ch)
 {
 	if(ch == '\n') {
 		printNewLine();
 	} else {
 		outLineIndent_ = outLineStart_ || (outLineIndent_ && (ch == ' ' || ch == '\t'));
-
-		if(printedColor_ != selectedColor_) {
-			printedColor_ = selectedColor_;
-			fputs(selectedColor_, output_);
-		}
-		if(outLineStart_) {
-			// we don't want to highlight first character
-			if(printedHighlight_ != highlightOff) {
-				printedHighlight_ = highlightOff;
-				fputs(highlightOff, output_);
-			}
-		} else if(printedHighlight_ != selectedHighlight_) {
-			printedHighlight_ = selectedHighlight_;
-			fputs(selectedHighlight_, output_);
-		}
-
+		printAnsiCodes();
 		fputc(ch, output_);
-
 		outLineStart_ = 0;
 	}
 }
@@ -116,4 +112,11 @@ NeonApp::printCharNoAnsi(const char ch)
 		fputc(ch, output_);
 		outLineStart_ = 0;
 	}
+}
+
+void
+NeonApp::printBlock(const char *block, const char *blockEnd)
+{
+	while(block < blockEnd)
+		printChar(*block++);
 }

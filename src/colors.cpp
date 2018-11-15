@@ -11,9 +11,9 @@ const char *colorWhite = "\33[97m";
 const char *colorReset = "\33[m";
 
 // colors used for diff parts
-const char *colorDiffIntro = colorCyan;
-const char *colorFileIntro = colorWhite;
-const char *colorBlockInfo = colorBlue;
+const char *colorFileInfo = colorWhite;
+const char *colorBlockRange = colorCyan;
+const char *colorBlockHeading = colorBlue;
 const char *colorLineDel = colorRed;
 const char *colorLineAdd = colorGreen;
 const char *colorLineContext = colorReset;
