@@ -19,7 +19,7 @@
 */
 
 #include <stdio.h>
-#include <unistd.h>
+#include <getopt.h>
 
 #include "neonapp.h"
 #include "diffparser.h"
@@ -29,15 +29,25 @@ NeonApp *app = nullptr;
 int
 main(int argc, char *argv[])
 {
-	FILE *in = stdin;
-	FILE *out = stdout;
+	int inputFileCount = 0;
+	const char *inputFile[argc];
+	const char *outputFile = nullptr;
 
-	int ch;
-	while((ch = getopt(argc, argv, "i:o:h")) != -1) {
+	opterr = 0;
+	for(;;) {
+		static const struct option longOpts[] = {
+			{"help", no_argument, 0, 'h'},
+			{0, 0, 0, 0}
+		};
+
+		const int ch = getopt_long(argc, argv, "i:o:h", longOpts, nullptr);
+
+		if(ch == -1)
+			break;
 		switch(ch) {
 		case 'h':
 			fprintf(stderr,
-					"Usage: neon-diff [-h] [-i <input file>] [-o <output file>]\n"
+					"Usage: neon-diff [-h] [-i <input file>] [-o <output file>] [input file]...\n"
 					"Take unified diff input, detect changed content and add colored highlighting.\n"
 					"\n"
 					"  -i <input file>    read unified diff from input file, use - for STDIN (default)\n"
@@ -72,39 +82,58 @@ main(int argc, char *argv[])
 			return 1;
 
 		case 'i':
-			in = optarg[0] == '-' && optarg[1] == 0 ? stdin : fopen(optarg, "r");
-			if(!in) {
-				fprintf(stderr, "ERROR: Unable to open file \"%s\" for reading.\n", optarg);
-				return 1;
-			}
+			inputFile[inputFileCount++] = optarg;
 			break;
 
 		case 'o':
-			out = optarg[0] == '-' && optarg[1] == 0 ? stdout : fopen(optarg, "w");
-			if(!out) {
-				fprintf(stderr, "ERROR: Unable to open file \"%s\" for writing.\n", optarg);
-				return 1;
-			}
+			outputFile = optarg;
 			break;
 
 		case '?':
 			if(optopt == 'i' || optopt == 'o')
-				fprintf(stderr, "ERROR: Option -%c requires an argument.\n", optopt);
+				fprintf(stderr, "ERROR: Option -%c requires a filename argument.\n", optopt);
 			else
 				fprintf(stderr, "ERROR: Unknown option `-%c'.\n", optopt);
 			return 1;
 
 		default:
+			fprintf(stderr, "ERROR: Unknown option `-%c'.\n", optopt);
 			return 1;
 		}
 	}
 
-	app = new NeonApp(in, out);
+	// process remaining arguments as input file names
+	for(int i = optind; i < argc; i++)
+		inputFile[inputFileCount++] = argv[i];
 
-	app->parser_->processInput();
+	if(inputFileCount == 0)
+		inputFile[inputFileCount++] = "-";
 
-	if(in != stdin)
-		fclose(in);
+	// prepare output
+	FILE *out = !outputFile || (outputFile[0] == '-' && outputFile[1] == 0) ? stdout : fopen(outputFile, "w");
+	if(!out) {
+		fprintf(stderr, "ERROR: Unable to open file \"%s\" for writing.\n", optarg);
+		return 1;
+	}
+
+	// process each input file
+	for(int i = 0; i < inputFileCount; i++) {
+		FILE *in = inputFile[i][0] == '-' && inputFile[i][1] == 0 ? stdin : fopen(inputFile[i], "r");
+		if(!in) {
+			fprintf(stderr, "ERROR: Unable to open file \"%s\" for reading.\n", optarg);
+			return 1;
+		}
+
+		app = new NeonApp(in, out);
+
+		app->parser_->processInput();
+
+		if(in != stdin)
+			fclose(in);
+
+		delete app;
+	}
+
 	if(out != stdout)
 		fclose(out);
 
