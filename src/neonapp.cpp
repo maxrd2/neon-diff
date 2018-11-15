@@ -84,8 +84,8 @@ NeonApp::NeonApp(FILE *inputStream, FILE *outputStream)
 	  blockAdd_(nullptr),
 	  outLineStart_(true),
 	  outLineIndent_(true),
-	  selectedColor_(nullptr),
-	  selectedHighlight_(nullptr),
+	  selectedColor_(colorReset),
+	  selectedHighlight_(highlightReset),
 	  printedColor_(nullptr),
 	  printedHighlight_(nullptr)
 {
@@ -391,17 +391,17 @@ NeonApp::printChar(const char ch)
 
 		if(printedColor_ != selectedColor_) {
 			printedColor_ = selectedColor_;
-			fprintf(output_, selectedColor_);
+			fputs(selectedColor_, output_);
 		}
 		if(outLineStart_) {
 			// we don't want to highlight first character
 			if(printedHighlight_ != highlightOff) {
 				printedHighlight_ = highlightOff;
-				fprintf(output_, highlightOff);
+				fputs(highlightOff, output_);
 			}
 		} else if(printedHighlight_ != selectedHighlight_) {
 			printedHighlight_ = selectedHighlight_;
-			fprintf(output_, selectedHighlight_);
+			fputs(selectedHighlight_, output_);
 		}
 
 		fputc(ch, output_);
