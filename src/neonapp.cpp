@@ -24,13 +24,19 @@
 
 using namespace std;
 
+bool NeonApp::ignoreSpaces_ = false;
+int NeonApp::indentWidth_ = 0;
+const char *NeonApp::tabCharacter_ = " ";
+int NeonApp::tabWidth_ = 4;
 
 
 NeonApp::NeonApp(FILE *inputStream, FILE *outputStream)
 	: parser_(new DiffParser(inputStream)),
 	  output_(outputStream),
-	  outLineStart_(true),
-	  outLineIndent_(true),
+	  outputOnStart_(true),
+	  outputOnIndent_(true),
+	  outputIndex_(0),
+	  outputSpaces_(0),
 	  selectedColor_(colorReset),
 	  selectedHighlight_(highlightReset),
 	  printedColor_(nullptr),
@@ -67,7 +73,9 @@ NeonApp::printNewLine()
 	if(printedColor_ != colorReset)
 		printedColor_ = nullptr;
 
-	outLineStart_ = outLineIndent_ = true;
+	outputOnStart_ = outputOnIndent_ = true;
+	outputIndex_ = 0;
+	outputSpaces_ = 0;
 }
 
 void
@@ -77,8 +85,8 @@ NeonApp::printAnsiCodes()
 		printedColor_ = selectedColor_;
 		fputs(selectedColor_, output_);
 	}
-	if(outLineStart_) {
-		// we don't want to highlight first character
+	if(ignoreSpaces_ ? outputOnIndent_ : outputOnStart_) {
+		// we don't want to highlight first character/spaces
 		if(printedHighlight_ != highlightOff) {
 			printedHighlight_ = highlightOff;
 			fputs(highlightOff, output_);
@@ -95,10 +103,35 @@ NeonApp::printChar(const char ch, bool writeAnsi/* = true*/)
 	if(ch == '\n') {
 		printNewLine();
 	} else {
-		outLineIndent_ = outLineStart_ || (outLineIndent_ && (ch == ' ' || ch == '\t'));
+		outputOnIndent_ = outputOnStart_ || (outputOnIndent_ && (ch == ' ' || ch == '\t'));
 		if(writeAnsi)
 			printAnsiCodes();
-		fputc(ch, output_);
-		outLineStart_ = false;
+		if(ch == '\t') {
+			const int charsToTabStop = tabWidth_ - (outputIndex_ - 1) % tabWidth_;
+			fputs(app->tabCharacter_, output_);
+			for(int i = 1; i < charsToTabStop; i++)
+				fputc(' ', output_);
+			outputIndex_ += charsToTabStop;
+			outputSpaces_ = 0;
+		} else {
+			if(indentWidth_ && outputOnIndent_) {
+				if(ch == ' ' && !outputOnStart_) {
+					outputSpaces_++;
+					if(outputSpaces_ == indentWidth_) {
+						const int move = tabWidth_ - indentWidth_;
+						if(move > 0)
+							fprintf(output_, "\33[%dC", move);
+						else
+							fprintf(output_, "\33[%dD", -move);
+						outputSpaces_ = 0;
+					}
+				} else {
+					outputSpaces_ = 0;
+				}
+			}
+			fputc(ch, output_);
+			outputIndex_++;
+		}
+		outputOnStart_ = false;
 	}
 }

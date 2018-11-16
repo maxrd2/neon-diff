@@ -234,8 +234,12 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 			cur.bBuf = cur.bEnd = add;
 			cur.len = 0;
 
-			int i = spaceCount(rem, remEnd);
-			int j = spaceCount(add, addEnd);
+			int i = 0;
+			int j = 0;
+			if(app->ignoreSpaces()) {
+				i += spaceCount(rem, remEnd);
+				j += spaceCount(add, addEnd);
+			}
 
 			while(rem + i < remEnd && add + j < addEnd && rem[i] == add[j]) {
 				cur.len++;
@@ -247,13 +251,15 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 				cur.aEnd = rem + i;
 				cur.bEnd = add + j;
 
-				const int si = spaceCount(rem + i, remEnd);
-				const int sj = spaceCount(add + j, addEnd);
-				if(!si != !sj)
-					break;
-				cur.len += si > sj ? si : sj;
-				i += si;
-				j += sj;
+				if(app->ignoreSpaces()) {
+					const int si = spaceCount(rem + i, remEnd);
+					const int sj = spaceCount(add + j, addEnd);
+					if(!si != !sj)
+						break;
+					cur.len += si > sj ? si : sj;
+					i += si;
+					j += sj;
+				}
 			}
 
 			if(cur.len > best->len) {
