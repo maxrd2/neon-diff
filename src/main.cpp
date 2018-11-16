@@ -71,9 +71,10 @@ main(int argc, char *argv[])
 					"\n"
 					"GIT INTEGRATION:\n"
 					"  $ git config --global interactive.diffFilter 'neon-diff'\n"
-					"  $ git config --global pager.diff 'neon-diff | less'\n"
-					"  $ git config --global pager.show 'neon-diff | less'\n"
-					"  $ git config --global pager.log 'neon-diff | less'\n"
+					"  $ git config --global core.pager 'neon-diff | less -RFX'\n"
+					"  $ git config --global pager.diff 'neon-diff | less -RFX'\n"
+					"  $ git config --global pager.show 'neon-diff | less -RFX'\n"
+					"  $ git config --global pager.log 'neon-diff | less -RFX'\n"
 					" This will setup git to colorify output through neon-diff. See git-config --help for more details.\n"
 					"\n"
 					"\n"
@@ -112,7 +113,7 @@ main(int argc, char *argv[])
 	// prepare output
 	FILE *out = !outputFile || (outputFile[0] == '-' && outputFile[1] == 0) ? stdout : fopen(outputFile, "w");
 	if(!out) {
-		fprintf(stderr, "ERROR: Unable to open file \"%s\" for writing.\n", optarg);
+		fprintf(stderr, "ERROR: Unable to open file \"%s\" for writing.\n", outputFile);
 		return 1;
 	}
 
@@ -120,12 +121,11 @@ main(int argc, char *argv[])
 	for(int i = 0; i < inputFileCount; i++) {
 		FILE *in = inputFile[i][0] == '-' && inputFile[i][1] == 0 ? stdin : fopen(inputFile[i], "r");
 		if(!in) {
-			fprintf(stderr, "ERROR: Unable to open file \"%s\" for reading.\n", optarg);
+			fprintf(stderr, "ERROR: Unable to open file \"%s\" for reading.\n", inputFile[i]);
 			return 1;
 		}
 
 		app = new NeonApp(in, out);
-
 		app->parser_->processInput();
 
 		if(in != stdin)
