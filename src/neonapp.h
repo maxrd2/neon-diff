@@ -16,9 +16,7 @@ public:
 
 	void printNewLine();
 	void printAnsiCodes();
-	void printChar(const char ch);
-	void printCharNoAnsi(const char ch);
-	void printBlock(const char *block, const char *blockEnd);
+	void printChar(const char ch, bool writeAnsi = true);
 
 private:
 	friend int main(int argc, char *argv[]);

@@ -67,7 +67,7 @@ NeonApp::printNewLine()
 	if(printedColor_ != colorReset)
 		printedColor_ = nullptr;
 
-	outLineStart_ = outLineIndent_ = 1;
+	outLineStart_ = outLineIndent_ = true;
 }
 
 void
@@ -90,33 +90,15 @@ NeonApp::printAnsiCodes()
 }
 
 void
-NeonApp::printChar(const char ch)
+NeonApp::printChar(const char ch, bool writeAnsi/* = true*/)
 {
 	if(ch == '\n') {
 		printNewLine();
 	} else {
 		outLineIndent_ = outLineStart_ || (outLineIndent_ && (ch == ' ' || ch == '\t'));
-		printAnsiCodes();
+		if(writeAnsi)
+			printAnsiCodes();
 		fputc(ch, output_);
-		outLineStart_ = 0;
+		outLineStart_ = false;
 	}
-}
-
-void
-NeonApp::printCharNoAnsi(const char ch)
-{
-	if(ch == '\n') {
-		printNewLine();
-	} else {
-		outLineIndent_ = outLineStart_ || (outLineIndent_ && (ch == ' ' || ch == '\t'));
-		fputc(ch, output_);
-		outLineStart_ = 0;
-	}
-}
-
-void
-NeonApp::printBlock(const char *block, const char *blockEnd)
-{
-	while(block < blockEnd)
-		printChar(*block++);
 }

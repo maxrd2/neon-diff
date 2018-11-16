@@ -34,9 +34,11 @@ protected:
 
 	static void handleGenericLine(DiffParser *parser);
 
+	void printBlock(const char id, const char *block, const char *blockEnd);
 	void processBlock();
 
-	void stripLineAnsi();
+	void stripLineAnsi(int stripIndent = 0);
+
 	Block * longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
 	BlockList compareBlocks(const char *a, const char *aEnd, const char *b, const char *bEnd);
 

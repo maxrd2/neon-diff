@@ -163,7 +163,7 @@ DiffParser::readLine()
 }
 
 void
-DiffParser::stripLineAnsi()
+DiffParser::stripLineAnsi(int stripIndent/* = 0 */)
 {
 	char *left = line_;
 	char *right = line_;
@@ -176,18 +176,37 @@ DiffParser::stripLineAnsi()
 			} while(i < lineLen_ && *right++ != 'm');
 			continue;
 		}
-		i++;
-		*left++ = *right++;
+		if(stripIndent) {
+			lineLen_--;
+			bufLen_--;
+			stripIndent--;
+			right++;
+		} else {
+			i++;
+			*left++ = *right++;
+		}
 	}
 }
 
 Block *
 DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd)
 {
+	assert(rem <= remEnd);
+	assert(add <= addEnd);
+
 	Block *best = new Block();
 	Block cur;
 
 	const char *bSave = add;
+
+	auto spaceCount = [](const char *buf, const char *bufEnd) -> int {
+		int c = 0;
+
+		while(buf + c < bufEnd && (buf[c] == ' ' || buf[c] == '\t' || buf[c] == '\n'))
+			c++;
+
+		return c;
+	};
 
 	while(remEnd - rem > best->len) {
 		while(addEnd - add > best->len) {
@@ -195,33 +214,26 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 			cur.bBuf = cur.bEnd = add;
 			cur.len = 0;
 
-			int i = 0;
-			int j = 0;
-			for(;;) {
-				// skip spaces
-				while(&rem[i] < remEnd && (rem[i] == ' ' || rem[i] == '\t' || rem[i] == '\n' || rem[i - 1] == '\n'))
-					i++;
-				while(&add[j] < addEnd && (add[j] == ' ' || add[j] == '\t' || add[j] == '\n' || add[j - 1] == '\n'))
-					j++;
+			int i = spaceCount(rem, remEnd);
+			int j = spaceCount(add, addEnd);
 
-				if(&rem[i] >= remEnd || &add[j] >= addEnd || rem[i] != add[j])
-					break;
-
+			while(rem + i < remEnd && add + j < addEnd && rem[i] == add[j]) {
 				cur.len++;
-
 				i++;
 				j++;
 
-				// skip spaces
-				while(&rem[i] < remEnd && (rem[i] == ' ' || rem[i] == '\t' || rem[i] == '\n' || rem[i - 1] == '\n'))
-					i++;
-				while(&add[j] < addEnd && (add[j] == ' ' || add[j] == '\t' || add[j] == '\n' || add[j - 1] == '\n'))
-					j++;
+				assert(rem + i <= remEnd);
+				assert(add + j <= addEnd);
+				cur.aEnd = rem + i;
+				cur.bEnd = add + j;
 
-				assert(&rem[i] <= remEnd);
-				assert(&add[j] <= addEnd);
-				cur.aEnd = &rem[i];
-				cur.bEnd = &add[j];
+				const int si = spaceCount(rem + i, remEnd);
+				const int sj = spaceCount(add + j, addEnd);
+				if(!si != !sj)
+					break;
+				cur.len += si > sj ? si : sj;
+				i += si;
+				j += sj;
 			}
 
 			if(cur.len > best->len) {
@@ -262,51 +274,61 @@ DiffParser::compareBlocks(const char *remStart, const char *remEnd, const char *
 }
 
 void
+DiffParser::printBlock(const char id, const char *block, const char *blockEnd)
+{
+	bool newLine = block == buf_ || *(block - 1) == '\n';
+	while(block < blockEnd) {
+		if(newLine)
+			app->printChar(id);
+		newLine = *block == '\n';
+		app->printChar(*block++);
+	}
+}
+
+void
 DiffParser::processBlock()
 {
 	inBlock_ = false;
 
 	if(!blockAdd_) {
 		app->setColor(colorLineDel);
-		app->printBlock(blockRem_, line_);
+		printBlock('-', blockRem_, line_);
 		blockRem_ = nullptr;
 		return;
 	}
 	if(!blockRem_) {
 		app->setColor(colorLineAdd);
-		app->printBlock(blockAdd_, line_);
+		printBlock('+', blockAdd_, line_);
 		blockAdd_ = nullptr;
 		return;
 	}
 
-	BlockList blocks = compareBlocks(blockRem_ + 1, blockAdd_, blockAdd_ + 1, line_);
+	BlockList blocks = compareBlocks(blockRem_, blockAdd_, blockAdd_, line_);
 
 	app->setColor(colorLineDel);
 	const char *start = blockRem_;
 	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		app->printBlock(start, (*i)->aBuf);
+		printBlock('-', start, (*i)->aBuf);
 		app->setHighlight(highlightOff);
-		app->printBlock((*i)->aBuf, (*i)->aEnd);
+		printBlock('-', (*i)->aBuf, (*i)->aEnd);
 		start = (*i)->aEnd;
 	}
 	app->setHighlight(highlightOn);
-	app->printBlock(start, blockAdd_);
+	printBlock('-', start, blockAdd_);
 
 	app->setColor(colorLineAdd);
 	start = blockAdd_;
 	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		app->printBlock(start, (*i)->bBuf);
+		printBlock('+', start, (*i)->bBuf);
 		app->setHighlight(highlightOff);
-		app->printBlock((*i)->bBuf, (*i)->bEnd);
+		printBlock('+', (*i)->bBuf, (*i)->bEnd);
 		start = (*i)->bEnd;
 	}
 	app->setHighlight(highlightOn);
-	app->printBlock(start, line_);
+	printBlock('+', start, line_);
 
-	app->setHighlight(highlightOff);
-	blockAdd_ = blockRem_ = nullptr;
 }
 
 /*!
@@ -397,7 +419,7 @@ DiffParser::handleRemLine(DiffParser *parser)
 	if(!parser->blockRem_)
 		parser->blockRem_ = parser->line_;
 
-	parser->stripLineAnsi();
+	parser->stripLineAnsi(1);
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
@@ -410,7 +432,7 @@ DiffParser::handleAddLine(DiffParser *parser)
 	if(!parser->blockAdd_)
 		parser->blockAdd_ = parser->line_;
 
-	parser->stripLineAnsi();
+	parser->stripLineAnsi(1);
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
@@ -423,5 +445,5 @@ DiffParser::handleGenericLine(DiffParser *parser)
 	app->printAnsiCodes();
 
 	while(parser->lineLen_--)
-		app->printCharNoAnsi(*parser->line_++);
+		app->printChar(*parser->line_++, false);
 }
