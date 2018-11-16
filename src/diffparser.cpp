@@ -329,6 +329,8 @@ DiffParser::processBlock()
 	app->setHighlight(highlightOn);
 	printBlock('+', start, line_);
 
+	for(auto i = blocks.begin(); i != blocks.end(); i++)
+		delete (*i);
 }
 
 /*!
