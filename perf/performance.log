@@ -1,0 +1,3 @@
+command 'build/neon-diff performance.diff'
+compiled with '-mtune=generic -march=x86-64 -O2 -std=gnu++11'
+average time was 3.12sec over 3 executions
