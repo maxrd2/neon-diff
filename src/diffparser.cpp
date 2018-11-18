@@ -215,59 +215,49 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 	assert(add <= addEnd);
 
 	Block *best = new Block();
-	Block cur;
 
 	const char *bSave = add;
 
 	auto spaceCount = [](const char *buf, const char *bufEnd) -> int {
 		int c = 0;
-
 		while(buf + c < bufEnd && (buf[c] == ' ' || buf[c] == '\t' || buf[c] == '\n'))
 			c++;
-
 		return c;
 	};
 
 	while(remEnd - rem > best->len) {
+		const int iOffset = app->ignoreSpaces() ? spaceCount(rem, remEnd) : 0;
 		while(addEnd - add > best->len) {
-			cur.aBuf = cur.aEnd = rem;
-			cur.bBuf = cur.bEnd = add;
-			cur.len = 0;
-
-			int i = 0;
+			int i = iOffset;
 			int j = 0;
-			if(app->ignoreSpaces()) {
-				i += spaceCount(rem, remEnd);
+			if(app->ignoreSpaces())
 				j += spaceCount(add, addEnd);
-			}
+			int len = 0;
 
 			while(rem + i < remEnd && add + j < addEnd && rem[i] == add[j]) {
-				cur.len++;
+				len++;
 				i++;
 				j++;
-
-				assert(rem + i <= remEnd);
-				assert(add + j <= addEnd);
-				cur.aEnd = rem + i;
-				cur.bEnd = add + j;
 
 				if(app->ignoreSpaces()) {
 					const int si = spaceCount(rem + i, remEnd);
 					const int sj = spaceCount(add + j, addEnd);
 					if(!si != !sj)
 						break;
-					cur.len += si > sj ? si : sj;
+					len += si > sj ? si : sj;
 					i += si;
 					j += sj;
+					assert(rem + i <= remEnd);
+					assert(add + j <= addEnd);
 				}
 			}
 
-			if(cur.len > best->len) {
-				best->aBuf = cur.aBuf;
-				best->aEnd = cur.aEnd;
-				best->bBuf = cur.bBuf;
-				best->bEnd = cur.bEnd;
-				best->len = cur.len;
+			if(len > best->len) {
+				best->aBuf = rem;
+				best->aEnd = rem + i;
+				best->bBuf = add;
+				best->bEnd = add + i;
+				best->len = len;
 			}
 
 			add++;
@@ -289,11 +279,14 @@ DiffParser::compareBlocks(const char *remStart, const char *remEnd, const char *
 	BlockList list;
 	Block *longest = longestMatch(remStart, remEnd, addStart, addEnd);
 	if(longest) {
-		list = compareBlocks(remStart, longest->aBuf, addStart, longest->bBuf);
+		if(remStart < longest->aBuf && addStart < longest->bBuf)
+			list = compareBlocks(remStart, longest->aBuf, addStart, longest->bBuf);
 		list.push_back(longest);
 
-		BlockList tail = compareBlocks(longest->aEnd, remEnd, longest->bEnd, addEnd);
-		list.insert(list.end(), tail.begin(), tail.end());
+		if(longest->aEnd < remEnd && longest->bEnd < addEnd) {
+			BlockList tail = compareBlocks(longest->aEnd, remEnd, longest->bEnd, addEnd);
+			list.insert(list.end(), tail.begin(), tail.end());
+		}
 	}
 
 	return list;
