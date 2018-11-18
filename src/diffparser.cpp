@@ -256,7 +256,7 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 				best->aBuf = rem;
 				best->aEnd = rem + i;
 				best->bBuf = add;
-				best->bEnd = add + i;
+				best->bEnd = add + j;
 				best->len = len;
 			}
 
