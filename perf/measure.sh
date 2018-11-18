@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 rm -rf build &>/dev/null
 mkdir build
 cd build || exit 1
-(CXXFLAGS="-frecord-gcc-switches -O2" cmake ../.. && make neon-diff) || exit 1
+(CXXFLAGS="-frecord-gcc-switches" cmake ../.. && make neon-diff) || exit 1
 echo "-- Used compiler flags"
 gccflags=$(readelf -p .GCC.command.line neon-diff | cut -c 13- | grep -vP '^(\s*$|[^-]|-(I|D_|aux|frecord))' | sed -E -e ':a;N;$!ba;' -e 's/\n/ /g')
 echo "   $gccflags"
