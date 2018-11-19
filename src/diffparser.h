@@ -6,8 +6,18 @@
 
 #define LINE_HANDLER_SIZE 6
 
-class Block;
-typedef std::list<Block *> BlockList;
+class Match {
+public:
+	Match(const char *rem, const char *remEnd, const char *add, const char *addEnd, int len);
+	Match();
+	const char *rem_;
+	const char *remEnd_;
+	const char *add_;
+	const char *addEnd_;
+	int len_;
+};
+
+typedef std::list<Match> MatchList;
 
 class DiffParser
 {
@@ -39,8 +49,8 @@ protected:
 
 	void stripLineAnsi(int stripIndent = 0);
 
-	Block * longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
-	BlockList compareBlocks(const char *a, const char *aEnd, const char *b, const char *bEnd);
+	Match longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
+	MatchList compareBlocks(const char *a, const char *aEnd, const char *b, const char *bEnd);
 
 	void printLineNoAnsi(int length = -1);
 

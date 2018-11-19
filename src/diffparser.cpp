@@ -32,23 +32,24 @@
 // when buffer becomes too small its size is doubled, unless bigger than this
 #define BUFFER_MAX_SIZE_INC 8192 * 1024
 
+Match::Match()
+	: rem_(nullptr),
+	  remEnd_(nullptr),
+	  add_(nullptr),
+	  addEnd_(nullptr),
+	  len_(0)
+{
+}
 
-class Block {
-public:
-	Block()
-		: aBuf(nullptr),
-		  aEnd(nullptr),
-		  bBuf(nullptr),
-		  bEnd(nullptr),
-		  len(0)
-	{}
+Match::Match(const char *rem, const char *remEnd, const char *add, const char *addEnd, int len)
+	: rem_(rem),
+	  remEnd_(remEnd),
+	  add_(add),
+	  addEnd_(addEnd),
+	  len_(len)
+{
+}
 
-	const char *aBuf;
-	const char *aEnd;
-	const char *bBuf;
-	const char *bEnd;
-	int len;
-};
 
 DiffParser::LineHandler DiffParser::lineHandler_[LINE_HANDLER_SIZE] = {
 	// diff header lines
@@ -206,13 +207,13 @@ DiffParser::stripLineAnsi(int stripIndent/* = 0 */)
 	}
 }
 
-Block *
+Match
 DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd)
 {
 	assert(rem <= remEnd);
 	assert(add <= addEnd);
 
-	Block *best = new Block();
+	Match best;
 
 	const char *bSave = add;
 
@@ -223,9 +224,9 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 		return c;
 	};
 
-	while(remEnd - rem > best->len) {
+	while(remEnd - rem > best.len_) {
 		const int iOffset = app->ignoreSpaces() ? spaceCount(rem, remEnd) : 0;
-		while(addEnd - add > best->len) {
+		while(addEnd - add > best.len_) {
 			int i = iOffset;
 			int j = 0;
 			if(app->ignoreSpaces())
@@ -250,12 +251,12 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 				}
 			}
 
-			if(len > best->len) {
-				best->aBuf = rem;
-				best->aEnd = rem + i;
-				best->bBuf = add;
-				best->bEnd = add + j;
-				best->len = len;
+			if(len > best.len_) {
+				best.rem_ = rem;
+				best.remEnd_ = rem + i;
+				best.add_ = add;
+				best.addEnd_ = add + j;
+				best.len_ = len;
 			}
 
 			add++;
@@ -264,25 +265,21 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 		add = bSave;
 	}
 
-	if(best->len)
-		return best;
-
-	delete best;
-	return nullptr;
+	return best;
 }
 
-BlockList
+MatchList
 DiffParser::compareBlocks(const char *remStart, const char *remEnd, const char *addStart, const char *addEnd)
 {
-	BlockList list;
-	Block *longest = longestMatch(remStart, remEnd, addStart, addEnd);
-	if(longest) {
-		if(remStart < longest->aBuf && addStart < longest->bBuf)
-			list = compareBlocks(remStart, longest->aBuf, addStart, longest->bBuf);
+	MatchList list;
+	Match longest = longestMatch(remStart, remEnd, addStart, addEnd);
+	if(longest.len_) {
+		if(remStart < longest.rem_ && addStart < longest.add_)
+			list = compareBlocks(remStart, longest.rem_, addStart, longest.add_);
 		list.push_back(longest);
 
-		if(longest->aEnd < remEnd && longest->bEnd < addEnd) {
-			BlockList tail = compareBlocks(longest->aEnd, remEnd, longest->bEnd, addEnd);
+		if(longest.remEnd_ < remEnd && longest.addEnd_ < addEnd) {
+			MatchList tail = compareBlocks(longest.remEnd_, remEnd, longest.addEnd_, addEnd);
 			list.insert(list.end(), tail.begin(), tail.end());
 		}
 	}
@@ -320,34 +317,31 @@ DiffParser::processBlock()
 		return;
 	}
 
-	BlockList blocks = compareBlocks(blockRem_, blockAdd_, blockAdd_, line_);
+	MatchList blocks = compareBlocks(blockRem_, blockAdd_, blockAdd_, line_);
 
 	app->setColor(colorLineDel);
 	const char *start = blockRem_;
-	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
+	for(MatchList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		printBlock('-', start, (*i)->aBuf);
+		printBlock('-', start, i->rem_);
 		app->setHighlight(highlightOff);
-		printBlock('-', (*i)->aBuf, (*i)->aEnd);
-		start = (*i)->aEnd;
+		printBlock('-', i->rem_, i->remEnd_);
+		start = i->remEnd_;
 	}
 	app->setHighlight(highlightOn);
 	printBlock('-', start, blockAdd_);
 
 	app->setColor(colorLineAdd);
 	start = blockAdd_;
-	for(BlockList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
+	for(MatchList::iterator i = blocks.begin(); i != blocks.end(); ++i) {
 		app->setHighlight(highlightOn);
-		printBlock('+', start, (*i)->bBuf);
+		printBlock('+', start, i->add_);
 		app->setHighlight(highlightOff);
-		printBlock('+', (*i)->bBuf, (*i)->bEnd);
-		start = (*i)->bEnd;
+		printBlock('+', i->add_, i->addEnd_);
+		start = i->addEnd_;
 	}
 	app->setHighlight(highlightOn);
 	printBlock('+', start, line_);
-
-	for(auto i = blocks.begin(); i != blocks.end(); i++)
-		delete (*i);
 }
 
 /*!
