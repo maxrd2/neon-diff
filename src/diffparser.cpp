@@ -114,20 +114,18 @@ DiffParser::processInput()
 		while(i < LINE_HANDLER_SIZE && !handlerForLine(line_, lineHandler_[i].identifier, lineLen_))
 			i++;
 
-		if(i == LINE_HANDLER_SIZE) {
-			// no handler found, use generic one
-			handleGenericLine(this);
-		} else {
-			if(inBlock_ && !lineHandler_[i].blockLine)
-				processBlock();
+		const bool blockLine = i < LINE_HANDLER_SIZE && lineHandler_[i].blockLine;
+		if(inBlock_ && !blockLine)
+			processBlock();
+		inBlock_ = blockLine;
 
-			inBlock_ = lineHandler_[i].blockLine;
-
+		if(i < LINE_HANDLER_SIZE)
 			lineHandler_[i].callback(this);
+		else
+			handleGenericLine(this);
 
-			if(!inBlock_)
-				resetBuffer();
-		}
+		if(!inBlock_)
+			resetBuffer();
 	}
 
 	if(inBlock_)
