@@ -51,6 +51,28 @@ Match::Match(const char *rem, const char *remEnd, const char *add, const char *a
 }
 
 
+HalfMatch::HalfMatch()
+	: rem_(nullptr),
+	  remEnd_(nullptr),
+	  len_(0)
+{
+}
+
+HalfMatch::HalfMatch(const Match &match)
+	: rem_(match.rem_),
+	  remEnd_(match.remEnd_),
+	  len_(match.remEnd_ - match.rem_)
+{
+}
+
+HalfMatch::HalfMatch(const char *rem, const char *remEnd, int len)
+	: rem_(rem),
+	  remEnd_(remEnd),
+	  len_(len)
+{
+}
+
+
 const DiffParser::LineHandler DiffParser::lineHandler_[LINE_HANDLER_SIZE] = {
 	// diff header lines
 	{"---", &DiffParser::handleFileInfoLine, false},
@@ -206,15 +228,59 @@ DiffParser::stripLineAnsi(int stripIndent/* = 0 */)
 	}
 }
 
+void
+DiffParser::cacheClip(const char *rem, const char *remEnd)
+{
+	bool needsSort = false;
+	for(auto it = cache_.begin(), e = cache_.end(); it != e;) {
+		// it intersects clip
+		if(it->rem_ < remEnd && rem < it->remEnd_) {
+			const bool pieceBefore = it->rem_ < rem;
+			const bool pieceAfter = it->remEnd_ > remEnd;
+			if(!pieceBefore && !pieceAfter) {
+				// longest includes it
+				it = cache_.erase(it);
+			} else {
+				needsSort = true;
+				const char *itEnd = it->remEnd_;
+				if(pieceBefore) {
+					it->remEnd_ = rem;
+					it->len_ = rem - it->rem_;
+				}
+				if(pieceAfter) {
+					if(pieceBefore) {
+						++it;
+						cache_.insert(it, HalfMatch(remEnd, itEnd, itEnd - remEnd));
+					} else {
+						it->rem_ = remEnd;
+						it->len_ = itEnd - it->rem_;
+						++it;
+					}
+				} else {
+					++it;
+				}
+			}
+		} else {
+			++it;
+		}
+	}
+	if(needsSort) // TODO: [optimization] we could skip sort and insert/move elements in the loop above
+		cache_.sort();
+}
+
+Match
+DiffParser::longestMake(const char *rem, const char *remEnd, const char *add, const char *addEnd, const int len)
+{
+	Match longest(rem, remEnd, add, addEnd, len);
+	cacheClip(rem, remEnd);
+	return longest;
+}
+
 Match
 DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd)
 {
 	assert(rem <= remEnd);
 	assert(add <= addEnd);
-
-	Match best;
-
-	const char *bSave = add;
 
 	auto spaceCount = [](const char *buf, const char *bufEnd) -> int {
 		int c = 0;
@@ -223,48 +289,118 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 		return c;
 	};
 
-	while(remEnd - rem > best.len_) {
-		const int iOffset = app->ignoreSpaces() ? spaceCount(rem, remEnd) : 0;
-		while(addEnd - add > best.len_) {
-			int i = iOffset;
-			int j = 0;
-			if(app->ignoreSpaces())
-				j += spaceCount(add, addEnd);
-			int len = 0;
+	const char *addSave = add;
 
-			while(rem + i < remEnd && add + j < addEnd && rem[i] == add[j]) {
-				len++;
+	HalfMatchList::reverse_iterator r = cache_.rbegin();
+	while(r != cache_.rend()) {
+
+		// not overlapping
+		if(r->rem_ >= remEnd || rem >= r->remEnd_) {
+			++r;
+			continue;
+		}
+
+		// clip longest match to our range
+		const char *mRem = r->rem_ < rem ? rem : r->rem_;
+		const char *mRemEnd = r->remEnd_ > remEnd ? remEnd : r->remEnd_;
+		const int mLen = mRemEnd - mRem;
+
+		// we got longest match from the cache_ now find the first match
+		const int iOffset = app->ignoreSpaces() ? spaceCount(mRem, mRemEnd) : 0;
+
+		const char *bestAdd = nullptr;
+		int bestRemLen = 0;
+		while(add < addEnd) {
+			int i = iOffset;
+			const int jOffset = app->ignoreSpaces() ? spaceCount(add, addEnd) : 0;
+			int j = jOffset;
+			while(mRem + i < mRemEnd && add + j < addEnd && mRem[i] == add[j]) {
 				i++;
 				j++;
-
 				if(app->ignoreSpaces()) {
-					const int si = spaceCount(rem + i, remEnd);
-					const int sj = spaceCount(add + j, addEnd);
-					if(!si != !sj)
-						break;
-					len += si > sj ? si : sj;
-					i += si;
-					j += sj;
-					assert(rem + i <= remEnd);
-					assert(add + j <= addEnd);
+					i += spaceCount(mRem + i, mRemEnd);
+					j += spaceCount(add + j, addEnd);
 				}
 			}
 
-			if(len > best.len_) {
-				best.rem_ = rem;
-				best.remEnd_ = rem + i;
-				best.add_ = add;
-				best.addEnd_ = add + j;
-				best.len_ = len;
+			if(i == mLen) {
+				// found a full match
+				return longestMake(mRem, mRemEnd, add, add + j, mLen > j ? mLen : j);
+			} else if(i > iOffset && i > bestRemLen) {
+				// found a partial match
+				bestAdd = add;
+				bestRemLen = i;
 			}
 
-			add++;
+			add += jOffset + 1;
 		}
-		rem++;
+
+		add = addSave;
+
+		if(bestAdd) {
+			r->remEnd_ = mRem + bestRemLen;
+			if(r == cache_.rbegin()) {
+				cache_.sort();
+				r = cache_.rbegin();
+			} else {
+				--r;
+				cache_.sort();
+			}
+			continue;
+		}
+
+		r = decltype(r){ cache_.erase(std::next(r).base()) };
+	}
+
+	return Match();
+}
+
+
+void
+DiffParser::buildMatchCache(const char *rem, const char *remEnd, const char *add, const char *addEnd)
+{
+	assert(rem <= remEnd);
+	assert(add <= addEnd);
+
+	auto spaceCount = [](const char *buf, const char *bufEnd) -> int {
+		int c = 0;
+		while(buf + c < bufEnd && (buf[c] == ' ' || buf[c] == '\t' || buf[c] == '\n'))
+			c++;
+		return c;
+	};
+
+	const char *bSave = add;
+
+	while(rem < remEnd) {
+		int iMax = 0;
+		const int iOffset = app->ignoreSpaces() ? spaceCount(rem, remEnd) : 0;
+		while(add < addEnd) {
+			int i = iOffset;
+			const int jOffset = app->ignoreSpaces() ? spaceCount(add, addEnd) : 0;
+			int j = jOffset;
+
+			while(rem + i < remEnd && add + j < addEnd && rem[i] == add[j]) {
+				i++;
+				j++;
+			}
+
+			if(i > iOffset && i > iMax) {
+				if(app->ignoreSpaces()) {
+					i += spaceCount(rem + i, remEnd);
+					j += spaceCount(add + j, addEnd);
+				}
+				// add it to cache, but make sure it's not duplicate(, and not all spaces)
+				iMax = i;
+				cache_.push_back(HalfMatch(rem, rem + i, i));
+			}
+
+			add += jOffset + 1;
+		}
+		rem += iMax > 0 ? iMax : 1;
 		add = bSave;
 	}
 
-	return best;
+	cache_.sort();
 }
 
 MatchList
@@ -316,7 +452,9 @@ DiffParser::processBlock()
 		return;
 	}
 
+	buildMatchCache(blockRem_, blockAdd_, blockAdd_, line_);
 	MatchList blocks = compareBlocks(blockRem_, blockAdd_, blockAdd_, line_);
+	cache_.clear();
 
 	app->setColor(colorLineDel);
 	const char *start = blockRem_;

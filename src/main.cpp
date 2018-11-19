@@ -65,7 +65,7 @@ main(int argc, char *argv[])
 			{0, 0, 0, 0}
 		};
 
-		const int ch = getopt_long(argc, argv, "i:o:sI:T::t:h", longOpts, nullptr);
+		const int ch = getopt_long(argc, argv, "i:o:sI:t:T::rh", longOpts, nullptr);
 
 		if(ch == -1)
 			break;

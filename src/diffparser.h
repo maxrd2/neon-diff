@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <list>
+#include <vector>
 
 #define LINE_HANDLER_SIZE 6
 
@@ -18,6 +19,19 @@ public:
 };
 
 typedef std::list<Match> MatchList;
+
+class HalfMatch {
+public:
+	HalfMatch(const char *rem, const char *remEnd, int len);
+	HalfMatch(const Match &match);
+	HalfMatch();
+	inline bool operator<(const HalfMatch &other) const { return len_ < other.len_; }
+	const char *rem_;
+	const char *remEnd_;
+	int len_;
+};
+
+typedef std::list<HalfMatch> HalfMatchList;
 
 class DiffParser
 {
@@ -49,6 +63,9 @@ protected:
 
 	void stripLineAnsi(int stripIndent = 0);
 
+	void buildMatchCache(const char *rem, const char *remEnd, const char *add, const char *addEnd);
+	Match longestMake(const char *rem, const char *remEnd, const char *add, const char *addEnd, const int len);
+	void cacheClip(const char *rem, const char *remEnd);
 	Match longestMatch(const char *rem, const char *remEnd, const char *add, const char *addEnd);
 	MatchList compareBlocks(const char *a, const char *aEnd, const char *b, const char *bEnd);
 
@@ -67,6 +84,8 @@ private:
 	bool inBlock_;
 	const char *blockRem_;
 	const char *blockAdd_;
+
+	HalfMatchList cache_;
 
 	typedef void (DiffParser::* LineHandlerCallback)();
 
