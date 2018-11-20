@@ -51,17 +51,16 @@ Match::Match(const char *rem, const char *remEnd, const char *add, const char *a
 }
 
 
-DiffParser::LineHandler DiffParser::lineHandler_[LINE_HANDLER_SIZE] = {
+const DiffParser::LineHandler DiffParser::lineHandler_[LINE_HANDLER_SIZE] = {
 	// diff header lines
-	{"---", DiffParser::handleFileInfoLine, false},
-	{"+++", DiffParser::handleFileInfoLine, false},
-	{"@@", DiffParser::handleRangeInfoLine, false},
+	{"---", &DiffParser::handleFileInfoLine, false},
+	{"+++", &DiffParser::handleFileInfoLine, false},
+	{"@@", &DiffParser::handleRangeInfoLine, false},
 	// block/range diff lines
-	{" ", DiffParser::handleContextLine, false},
-	{"-", DiffParser::handleRemLine, true},
-	{"+", DiffParser::handleAddLine, true}
+	{" ", &DiffParser::handleContextLine, false},
+	{"-", &DiffParser::handleRemLine, true},
+	{"+", &DiffParser::handleAddLine, true}
 };
-
 
 DiffParser::DiffParser(FILE *inputStream)
 	: input_(inputStream),
@@ -88,7 +87,7 @@ DiffParser::~DiffParser()
 	blockAdd_ = nullptr;
 }
 
-/*static*/ bool
+bool
 DiffParser::handlerForLine(const char *line, const char *id, int n)
 {
 	while(n && *line && *id) {
@@ -121,9 +120,9 @@ DiffParser::processInput()
 		inBlock_ = blockLine;
 
 		if(i < LINE_HANDLER_SIZE)
-			lineHandler_[i].callback(this);
+			(this->*lineHandler_[i].callback)();
 		else
-			handleGenericLine(this);
+			handleGenericLine();
 
 		if(!inBlock_)
 			resetBuffer();
@@ -370,22 +369,22 @@ DiffParser::printLineNoAnsi(int length/* = -1 */)
 	}
 }
 
-/*static*/ void
-DiffParser::handleFileInfoLine(DiffParser *parser)
+void
+DiffParser::handleFileInfoLine()
 {
 	// print '---' and '+++' lines
 
 	app->setHighlight(highlightOff);
 	app->setColor(colorFileInfo);
 
-	parser->printLineNoAnsi();
+	printLineNoAnsi();
 
 	app->setColor(colorReset);
 	app->setHighlight(highlightReset);
 }
 
-/*static*/ void
-DiffParser::handleRangeInfoLine(DiffParser *parser)
+void
+DiffParser::handleRangeInfoLine()
 {
 	// print '@@' lines
 
@@ -394,69 +393,69 @@ DiffParser::handleRangeInfoLine(DiffParser *parser)
 	app->setColor(colorBlockRange);
 	int at = 0;
 	int rangeLen = 0;
-	while(at < 4 && rangeLen < parser->lineLen_) {
-		if(parser->line_[rangeLen++] == '@')
+	while(at < 4 && rangeLen < lineLen_) {
+		if(line_[rangeLen++] == '@')
 			at++;
 	}
-	parser->printLineNoAnsi(rangeLen);
+	printLineNoAnsi(rangeLen);
 
 	app->setColor(colorBlockHeading);
-	parser->printLineNoAnsi();
+	printLineNoAnsi();
 
 	app->setColor(colorReset);
 	app->setHighlight(highlightReset);
 }
 
-/*static*/ void
-DiffParser::handleContextLine(DiffParser *parser)
+void
+DiffParser::handleContextLine()
 {
 	// print ' ' lines inside diff block
 
 	app->setHighlight(highlightOff);
 	app->setColor(colorLineContext);
 
-	parser->printLineNoAnsi();
+	printLineNoAnsi();
 
 	app->setColor(colorReset);
 	app->setHighlight(highlightReset);
 }
 
-/*static*/ void
-DiffParser::handleRemLine(DiffParser *parser)
+void
+DiffParser::handleRemLine()
 {
 	// handle '-' lines inside diff block
 
-	if(parser->blockAdd_) // when '-' block comes after '+' block, we have to process
-		parser->processBlock();
+	if(blockAdd_) // when '-' block comes after '+' block, we have to process
+		processBlock();
 
-	if(!parser->blockRem_)
-		parser->blockRem_ = parser->line_;
+	if(!blockRem_)
+		blockRem_ = line_;
 
-	parser->stripLineAnsi(1);
+	stripLineAnsi(1);
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
 
-/*static*/ void
-DiffParser::handleAddLine(DiffParser *parser)
+void
+DiffParser::handleAddLine()
 {
 	// handle '+' lines inside diff block
 
-	if(!parser->blockAdd_)
-		parser->blockAdd_ = parser->line_;
+	if(!blockAdd_)
+		blockAdd_ = line_;
 
-	parser->stripLineAnsi(1);
+	stripLineAnsi(1);
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
 
-/*static*/ void
-DiffParser::handleGenericLine(DiffParser *parser)
+void
+DiffParser::handleGenericLine()
 {
 	app->setColor(colorReset);
 	app->setHighlight(highlightReset);
 	app->printAnsiCodes();
 
-	while(parser->lineLen_--)
-		app->printChar(*parser->line_++, false);
+	while(lineLen_--)
+		app->printChar(*line_++, false);
 }

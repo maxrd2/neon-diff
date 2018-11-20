@@ -33,16 +33,16 @@ protected:
 	void resizeBuffer();
 	void resetBuffer();
 
-	static bool handlerForLine(const char *line, const char *id, int n);
+	bool handlerForLine(const char *line, const char *id, int n);
 
-	static void handleFileInfoLine(DiffParser *parser);
-	static void handleRangeInfoLine(DiffParser *parser);
+	void handleFileInfoLine();
+	void handleRangeInfoLine();
 
-	static void handleContextLine(DiffParser *parser);
-	static void handleRemLine(DiffParser *parser);
-	static void handleAddLine(DiffParser *parser);
+	void handleContextLine();
+	void handleRemLine();
+	void handleAddLine();
 
-	static void handleGenericLine(DiffParser *parser);
+	void handleGenericLine();
 
 	void printBlock(const char id, const char *block, const char *blockEnd);
 	void processBlock();
@@ -68,9 +68,9 @@ private:
 	const char *blockRem_;
 	const char *blockAdd_;
 
-	typedef void (*LineHandlerCallback)(DiffParser *parser);
+	typedef void (DiffParser::* LineHandlerCallback)();
 
-	static struct LineHandler {
+	static const struct LineHandler {
 		const char *identifier;
 		LineHandlerCallback callback;
 		bool blockLine;
