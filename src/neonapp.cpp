@@ -28,7 +28,7 @@ bool NeonApp::ignoreSpaces_ = false;
 int NeonApp::indentWidth_ = 0;
 const char *NeonApp::tabCharacter_ = " ";
 int NeonApp::tabWidth_ = 4;
-
+bool NeonApp::reparseRange_ = false;
 
 NeonApp::NeonApp(FILE *inputStream, FILE *outputStream)
 	: parser_(new DiffParser(inputStream)),

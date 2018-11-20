@@ -22,6 +22,7 @@ public:
 	inline int indentWidth() { return indentWidth_; }
 	inline const char * tabCharacter() { return tabCharacter_; }
 	inline int tabWidth() { return tabWidth_; }
+	inline bool reparseRange() { return reparseRange_; }
 
 private:
 	friend int main(int argc, char *argv[]);
@@ -30,6 +31,7 @@ private:
 	static int indentWidth_;
 	static const char *tabCharacter_;
 	static int tabWidth_;
+	static bool reparseRange_;
 
 	DiffParser *parser_;
 

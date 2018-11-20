@@ -18,7 +18,8 @@ if [[ ! -f performance.diff ]]; then
 fi
 
 # time it
-echo "-- Measuring performance with $n executions"
+echo "-- Measuring performance"
+echo -e "compiled with '$gccflags'" > performance.log
 
 # defaults
 s=0; n=3; cmd="build/neon-diff performance.diff"
@@ -31,10 +32,10 @@ for i in $(seq 1 $n); do
 done
 s=$(bc <<<"scale=2; $s / $n")
 echo " average ${s}sec"
-echo -e "command '$cmd'\ncompiled with '$gccflags'\naverage time was ${s}sec over $n executions" > performance.log
+echo -e "command '$cmd'\n\taverage time was ${s}sec over $n executions" >> performance.log
 
 # strip spaces like before
-s=0; n=3; cmd="build/neon-diff -s performance.diff"
+s=0; n=3; cmd="build/neon-diff --ignore-spaces performance.diff"
 echo " $cmd"
 for i in $(seq 1 $n); do
 	echo -n " ..."
@@ -44,4 +45,17 @@ for i in $(seq 1 $n); do
 done
 s=$(bc <<<"scale=2; $s / $n")
 echo " average ${s}sec"
-echo -e "command '$cmd'\ncompiled with '$gccflags'\naverage time was ${s}sec over $n executions" >> performance.log
+echo -e "command '$cmd'\n\taverage time was ${s}sec over $n executions" >> performance.log
+
+# process whole blocks
+s=0; n=3; cmd="build/neon-diff --reparse-range performance.diff"
+echo " $cmd"
+for i in $(seq 1 $n); do
+	echo -n " ..."
+	t=$(bash -c "time -p $cmd &>/dev/null" 2>&1 | sed -E -e ':a;N;$!ba;' -e 's/real ([0-9.]+).*/\1/')
+	s=$(bc <<<"scale=4; $s + $t")
+	echo " ${t}sec"
+done
+s=$(bc <<<"scale=2; $s / $n")
+echo " average ${s}sec"
+echo -e "command '$cmd'\n\taverage time was ${s}sec over $n executions" >> performance.log

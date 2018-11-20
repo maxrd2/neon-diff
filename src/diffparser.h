@@ -44,8 +44,8 @@ public:
 	bool readLine();
 
 protected:
-	void resizeBuffer();
-	void resetBuffer();
+	void resizeBuffers();
+	void resetBuffers();
 
 	bool handlerForLine(const char *line, const char *id, int n);
 
@@ -61,7 +61,7 @@ protected:
 	void printBlock(const char id, const char *block, const char *blockEnd);
 	void processBlock();
 
-	void stripLineAnsi(int stripIndent = 0);
+	void stripLineAnsi(int stripIndent = 0, bool writeToAlt = false, bool moveToAlt = false);
 
 	void buildMatchCache(const char *rem, const char *remEnd, const char *add, const char *addEnd);
 	Match longestMake(const char *rem, const char *remEnd, const char *add, const char *addEnd, const int len);
@@ -77,13 +77,18 @@ private:
 	char *buf_;
 	int bufLen_;
 	int bufSize_;
+	char *alt_;
+	int altLen_;
+	int altSize_;
 
 	char *line_;
 	int lineLen_;
 
 	bool inBlock_;
 	const char *blockRem_;
+	const char *blockRemEnd_;
 	const char *blockAdd_;
+	const char *blockAddEnd_;
 
 	HalfMatchList cache_;
 

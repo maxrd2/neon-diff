@@ -61,6 +61,7 @@ main(int argc, char *argv[])
 			{"convert-indent", required_argument, nullptr, 'I'},
 			{"tab-width", required_argument, nullptr, 't'},
 			{"show-tabs", optional_argument, nullptr, 'T'},
+			{"reparse-range", no_argument, nullptr, 'r'},
 			{"help", no_argument, 0, 'h'},
 			{0, 0, 0, 0}
 		};
@@ -100,6 +101,10 @@ main(int argc, char *argv[])
 			NeonApp::tabCharacter_ = optarg && *optarg ? optarg : "\uffeb";
 			break;
 
+		case 'r': // reparse-range
+			NeonApp::reparseRange_ = true;
+			break;
+
 		case 'h': // help
 			fprintf(stderr,
 					"Usage: neon-diff [-h] [-i <input file>] [-o <output file>] [input file]...\n"
@@ -113,6 +118,10 @@ main(int argc, char *argv[])
 					"  -t, --tab-width=<width>    set tab stop every [width] characters (default: 4)\n"
 					"  -T, --show-tabs=[char]     display tabs with character. Activating option without specifying\n"
 					"                             character will show '\uffeb' in place of tabs. (default: disabled)\n"
+					"\n"
+					"  -r, --reparse-range        reparse whole block between '@@' lines. This will better detect\n"
+					"                             changes between separated '+/-' lines, but will change the diff\n"
+					"                             (might break git's interactive.diffFilter)\n"
 					"\n"
 					"  -h, --help                 show this help message\n"
 					"\n"

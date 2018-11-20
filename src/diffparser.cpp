@@ -89,12 +89,18 @@ DiffParser::DiffParser(FILE *inputStream)
 	  buf_(nullptr),
 	  bufLen_(0),
 	  bufSize_(BUFFER_SIZE_INIT),
+	  alt_(nullptr),
+	  altLen_(0),
+	  altSize_(BUFFER_SIZE_INIT),
 	  line_(nullptr),
 	  lineLen_(0),
 	  blockRem_(nullptr),
-	  blockAdd_(nullptr)
+	  blockRemEnd_(nullptr),
+	  blockAdd_(nullptr),
+	  blockAddEnd_(nullptr)
 {
 	buf_ = static_cast<char *>(malloc(bufSize_));
+	alt_ = static_cast<char *>(malloc(altSize_));
 }
 
 DiffParser::~DiffParser()
@@ -103,10 +109,16 @@ DiffParser::~DiffParser()
 		free(buf_);
 		bufSize_ = bufLen_ = 0;
 	}
+	if(alt_) {
+		free(alt_);
+		altSize_ = altLen_ = 0;
+	}
 	line_ = nullptr;
 	lineLen_ = 0;
 	blockRem_ = nullptr;
+	blockRemEnd_ = nullptr;
 	blockAdd_ = nullptr;
+	blockAddEnd_ = nullptr;
 }
 
 bool
@@ -136,7 +148,8 @@ DiffParser::processInput()
 		while(i < LINE_HANDLER_SIZE && !handlerForLine(line_, lineHandler_[i].identifier, lineLen_))
 			i++;
 
-		const bool blockLine = i < LINE_HANDLER_SIZE && lineHandler_[i].blockLine;
+		const bool blockLine = i < LINE_HANDLER_SIZE &&
+			((app->reparseRange() && lineHandler_[i].callback == &DiffParser::handleContextLine) || lineHandler_[i].blockLine);
 		if(inBlock_ && !blockLine)
 			processBlock();
 		inBlock_ = blockLine;
@@ -147,7 +160,7 @@ DiffParser::processInput()
 			handleGenericLine();
 
 		if(!inBlock_)
-			resetBuffer();
+			resetBuffers();
 	}
 
 	if(inBlock_)
@@ -155,28 +168,48 @@ DiffParser::processInput()
 }
 
 void
-DiffParser::resetBuffer()
+DiffParser::resetBuffers()
 {
 	bufLen_ = 0;
+	altLen_ = 0;
 	line_ = nullptr;
 	lineLen_ = 0;
 	blockRem_ = nullptr;
+	blockRemEnd_ = nullptr;
 	blockAdd_ = nullptr;
+	blockAddEnd_ = nullptr;
 }
 
 void
-DiffParser::resizeBuffer()
+DiffParser::resizeBuffers()
 {
-	char *buf = buf_;
-	bufSize_ += bufSize_ > BUFFER_MAX_SIZE_INC ? BUFFER_MAX_SIZE_INC : bufSize_;
-	buf_ = static_cast<char *>(realloc(buf_, bufSize_));
+	if(bufLen_ * 4 / 3 > bufSize_) {
+		const char *buf = buf_;
+		bufSize_ += bufSize_ > BUFFER_MAX_SIZE_INC ? BUFFER_MAX_SIZE_INC : bufSize_;
+		buf_ = static_cast<char *>(realloc(buf_, bufSize_));
 
-	// change pointers to new buf address
-	line_ = buf_ + (line_ - buf);
-	if(blockRem_)
-		blockRem_ = buf_ + (blockRem_ - buf);
-	if(blockAdd_)
-		blockAdd_ = buf_ + (blockAdd_ - buf);
+		// change pointers to new buf address
+		line_ = buf_ + (line_ - buf);
+		if(blockRem_) {
+			blockRem_ = buf_ + (blockRem_ - buf);
+			blockRemEnd_ = buf_ + (blockRemEnd_ - buf);
+		}
+		if(blockAdd_ && !app->reparseRange()) {
+			blockAdd_ = buf_ + (blockAdd_ - buf);
+			blockAddEnd_ = buf_ + (blockAddEnd_ - buf);
+		}
+	}
+	if(altLen_ * 4 / 3 > altSize_) {
+		const char *alt = alt_;
+		altSize_ += altSize_ > BUFFER_MAX_SIZE_INC ? BUFFER_MAX_SIZE_INC : altSize_;
+		alt_ = static_cast<char *>(realloc(alt_, altSize_));
+
+		// change pointers to new alt address
+		if(blockAdd_ && app->reparseRange()) {
+			blockAdd_ = alt_ + (blockAdd_ - alt);
+			blockAddEnd_ = alt_ + (blockAddEnd_ - alt);
+		}
+	}
 }
 
 bool
@@ -187,7 +220,7 @@ DiffParser::readLine()
 
 	while(!feof(input_)) {
 		if(bufLen_ >= bufSize_)
-			resizeBuffer();
+			resizeBuffers();
 
 		int ch = fgetc(input_);
 		buf_[bufLen_] = ch;
@@ -203,9 +236,12 @@ DiffParser::readLine()
 }
 
 void
-DiffParser::stripLineAnsi(int stripIndent/* = 0 */)
+DiffParser::stripLineAnsi(int stripIndent/* = 0 */, bool writeToAlt/* = false*/, bool moveToAlt/* = false*/)
 {
-	char *left = line_;
+	if(writeToAlt && altLen_ + lineLen_ < altSize_)
+		resizeBuffers();
+
+	char *left = writeToAlt ? &alt_[altLen_] : line_;
 	char *right = line_;
 
 	for(int i = 0; i < lineLen_;) {
@@ -224,6 +260,14 @@ DiffParser::stripLineAnsi(int stripIndent/* = 0 */)
 		} else {
 			i++;
 			*left++ = *right++;
+		}
+	}
+
+	if(writeToAlt) {
+		altLen_ += lineLen_;
+		if(moveToAlt) {
+			bufLen_ -= lineLen_;
+			lineLen_ = 0;
 		}
 	}
 }
@@ -328,6 +372,11 @@ DiffParser::longestMatch(const char *rem, const char *remEnd, const char *add, c
 				return longestMake(mRem, mRemEnd, add, add + j, mLen > j ? mLen : j);
 			} else if(i > iOffset && i > bestRemLen) {
 				// found a partial match
+				// TODO: be smarter with partial matches, this will save time (10.19sec => 6.20sec).
+				//       Instead of HalfMatch cache Match; clip both ranges in cacheClip.
+				//       Right now clipping is done anyways with bestAdd below, and we have bigger
+				//       loop complexity here. Also we would save time by going for add_ buffer
+				//       immediately when in range.
 				bestAdd = add;
 				bestRemLen = i;
 			}
@@ -425,7 +474,7 @@ DiffParser::compareBlocks(const char *remStart, const char *remEnd, const char *
 void
 DiffParser::printBlock(const char id, const char *block, const char *blockEnd)
 {
-	bool newLine = block == buf_ || *(block - 1) == '\n';
+	bool newLine = block == buf_ || block == alt_ || *(block - 1) == '\n';
 	while(block < blockEnd) {
 		if(newLine)
 			app->printChar(id);
@@ -441,19 +490,17 @@ DiffParser::processBlock()
 
 	if(!blockAdd_) {
 		app->setColor(colorLineDel);
-		printBlock('-', blockRem_, line_);
-		blockRem_ = nullptr;
+		printBlock('-', blockRem_, blockRemEnd_);
 		return;
 	}
 	if(!blockRem_) {
 		app->setColor(colorLineAdd);
-		printBlock('+', blockAdd_, line_);
-		blockAdd_ = nullptr;
+		printBlock('+', blockAdd_, blockAddEnd_);
 		return;
 	}
 
-	buildMatchCache(blockRem_, blockAdd_, blockAdd_, line_);
-	MatchList blocks = compareBlocks(blockRem_, blockAdd_, blockAdd_, line_);
+	buildMatchCache(blockRem_, blockRemEnd_, blockAdd_, blockAddEnd_);
+	MatchList blocks = compareBlocks(blockRem_, blockRemEnd_, blockAdd_, blockAddEnd_);
 	cache_.clear();
 
 	app->setColor(colorLineDel);
@@ -466,7 +513,7 @@ DiffParser::processBlock()
 		start = i->remEnd_;
 	}
 	app->setHighlight(highlightOn);
-	printBlock('-', start, blockAdd_);
+	printBlock('-', start, blockRemEnd_);
 
 	app->setColor(colorLineAdd);
 	start = blockAdd_;
@@ -478,7 +525,7 @@ DiffParser::processBlock()
 		start = i->addEnd_;
 	}
 	app->setHighlight(highlightOn);
-	printBlock('+', start, line_);
+	printBlock('+', start, blockAddEnd_);
 }
 
 /*!
@@ -549,13 +596,30 @@ DiffParser::handleContextLine()
 {
 	// print ' ' lines inside diff block
 
-	app->setHighlight(highlightOff);
-	app->setColor(colorLineContext);
+	if(app->reparseRange()) {
+		// process '-' block
+		stripLineAnsi(1);
 
-	printLineNoAnsi();
+		if(!blockRem_)
+			blockRem_ = line_;
+		blockRemEnd_ = line_ + lineLen_;
 
-	app->setColor(colorReset);
-	app->setHighlight(highlightReset);
+		// process '+' block
+		stripLineAnsi(0, true, false);
+
+		if(!blockAdd_)
+			blockAdd_ = alt_;
+		blockAddEnd_ = alt_ + altLen_;
+
+	} else {
+		app->setHighlight(highlightOff);
+		app->setColor(colorLineContext);
+
+		printLineNoAnsi();
+
+		app->setColor(colorReset);
+		app->setHighlight(highlightReset);
+	}
 }
 
 void
@@ -563,13 +627,15 @@ DiffParser::handleRemLine()
 {
 	// handle '-' lines inside diff block
 
-	if(blockAdd_) // when '-' block comes after '+' block, we have to process
+	if(!app->reparseRange() && blockAdd_) // when '-' block comes after '+' block, we have to process
 		processBlock();
 
 	if(!blockRem_)
 		blockRem_ = line_;
 
 	stripLineAnsi(1);
+
+	blockRemEnd_ = line_ + lineLen_;
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
@@ -578,11 +644,21 @@ void
 DiffParser::handleAddLine()
 {
 	// handle '+' lines inside diff block
+	if(app->reparseRange()) {
+		stripLineAnsi(1, true, true);
 
-	if(!blockAdd_)
-		blockAdd_ = line_;
+		if(!blockAdd_)
+			blockAdd_ = alt_;
 
-	stripLineAnsi(1);
+		blockAddEnd_ = alt_ + altLen_;
+	} else {
+		if(!blockAdd_)
+			blockAdd_ = line_;
+
+		stripLineAnsi(1);
+
+		blockAddEnd_ = buf_ + bufLen_;
+	}
 
 	// we are just preparing block buffers, they will be printed in processBlock()
 }
